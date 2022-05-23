@@ -27,12 +27,24 @@ impl<'a> Iterator for Tokeniser<'a> {
         let mut token = self.code; // set it to the whole thing here so if there's no whitespace it returns the whole thing as one token
         let line_at_find = self.line;
         let mut bracket_layers = 0;
-        for (i, c) in self.code.char_indices() {
+        let mut in_comment = false;
+        for (i, c) in self.code.char_indices() { // ACTUALLY HAUNTED
+            if in_comment {
+                if c == '\n' || c == '\\' {
+                    in_comment = false;
+                    in_space = true;
+                }
+                continue
+            }
             if c == '(' {
                 bracket_layers += 1
             }
             else if c == ')' {
                 bracket_layers -= 1
+            }
+            else if c == '\\' {
+                in_comment = true;
+                continue
             }
             else if c == '\n' {
                 self.line += 1
@@ -45,7 +57,7 @@ impl<'a> Iterator for Tokeniser<'a> {
             }
             else {
                 if in_space { // if we've left whitespace...
-                    self.code = &self.code[i..]; // shave off what we're returning + the delimiting whitespace
+                    self.code = &self.code[i..]; // shave off what we're returning + the delimiting whitespace + any comments
                     let t = Token {
                         token, line: line_at_find
                     };

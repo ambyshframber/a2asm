@@ -12,8 +12,10 @@ Instructions are notated using the syntax defined in the specification. A copy o
 
 The current supported directives are:
 
-- `.label(name)`: inserts a label with the name given. `.lbl(name)` may also be used.
-- `.absc(name)`: inserts the absolute address of the label given.
+- `.label(name)`: adds a label with the name given. `.lbl(name)` may also be used.
+- `.absc(name)`: inserts the absolute address of the label given, as a raw value.
 - `.hex(hex)`: inserts the byte given as a raw value.
 
-Example programs (currently only one) can be found in the `examples` directory.
+Comments are inserted using `\`. They proceed until either the end of the line or another `\`.
+
+Example programs can be found in the `examples` directory.

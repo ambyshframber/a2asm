@@ -1,0 +1,14 @@
+.lbl(checkbuf)
+LIT2 .hex(ff) .hex(0b) LDA \ get buf length
+LIT2 .absc(dochar) JNZ2
+LIT2 .absc(checkbuf) JMP2
+
+.lbl(dochar)
+LIT2 .hex(ff) \beans\ .hex(08) LDA \ get char from stdin
+LIT2 .hex(ff) .hex(09) STA \ print 
+LIT2 .absc(checkbuf) JMP2
+
+.lbl(exit)
+LIT .hex(00) LIT2 .hex(ff) .hex(0f) STA \ exit program with code 0
+
+.hex(ff) \ emergency exit

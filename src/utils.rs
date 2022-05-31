@@ -2,7 +2,7 @@ use std::iter::Iterator;
 
 pub struct Tokeniser<'a> {
     code: &'a str,
-    line: usize,
+    line: i32,
 }
 
 // scrub over string until you find a valid split point
@@ -20,62 +20,80 @@ impl<'a> Iterator for Tokeniser<'a> {
     type Item = Result<Token<'a>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.code.trim() == "" { // None if only whitespace left
+        if self.code.trim() == "" {
             return None
         }
-        let mut in_space = false;
-        let mut token = self.code; // set it to the whole thing here so if there's no whitespace it returns the whole thing as one token
-        let line_at_find = self.line;
-        let mut bracket_layers = 0;
+        let mut hit_word = false;
         let mut in_comment = false;
-        for (i, c) in self.code.char_indices() { // ACTUALLY HAUNTED
-            if in_comment {
-                if c == '\n' || c == '\\' {
-                    in_comment = false;
-                    in_space = true;
-                }
-                continue
-            }
-            if c == '(' {
-                bracket_layers += 1
-            }
-            else if c == ')' {
-                bracket_layers -= 1
-            }
-            else if c == '\\' {
-                in_comment = true;
-                continue
-            }
-            else if c == '\n' {
+        let mut tstart = 0;
+        let mut line_at_tstart = 0;
+        let mut bracket_layers = 0;
+        
+        for (i, c) in self.code.char_indices() {
+            if c == '\n' { // ALWAYS count lines
                 self.line += 1
             }
-            if [' ', '\n', '\t'].contains(&c) { // is it a whitespace char?
-                if !in_space && bracket_layers == 0 { // check we're outside brackets
-                    token = &self.code[..i]; // slice out token now
-                    in_space = true;
+            if in_comment { // iterate until matching `\` or newline
+                if c == '\\' || c == '\n' {
+                    in_comment = false
                 }
             }
             else {
-                if in_space { // if we've left whitespace...
-                    self.code = &self.code[i..]; // shave off what we're returning + the delimiting whitespace + any comments
-                    let t = Token {
-                        token, line: line_at_find
-                    };
-                    return Some(Ok(t)) // and return the value we sliced out earlier
+                if c == '(' { // only count brackets when outside comments
+                    bracket_layers += 1
+                }
+                if c == ')' {
+                    bracket_layers -= 1
+                }
+                //println!("{:?} {}", c, bracket_layers);
+                if !hit_word { // iterate until word start
+                    if c.is_whitespace() { // keep going
+                        continue
+                    }
+                    else if c == '\\' { // enter comment
+                        in_comment = true
+                    }
+                    else { // not whitespace or comment
+                        tstart = i; // remember where token starts
+                        line_at_tstart = self.line;
+                        hit_word = true
+                    }
+                }
+                else { // found word
+                    if (c.is_whitespace() || c == '\\') && bracket_layers == 0 { // end word
+                        if c == '\n' {
+                            self.line -= 1
+                        }
+                        let word = &self.code[tstart..i].trim(); // cut out token
+                        let t = Token {
+                            token: word,
+                            line: line_at_tstart
+                        };
+                        self.code = &self.code[i..];
+                        return Some(Ok(t))
+                    }
+                    else { // not whitespace or comment
+                        continue
+                    }
                 }
             }
         }
-        self.code = "";
+        if in_comment || !hit_word {
+            self.code = "";
+            return None
+        }
         let t = Token {
-            token, line: line_at_find
+            token: self.code.trim(),
+            line: self.line
         };
-        Some(Ok(t)) // return entire code if no whitespace
+        self.code = ""; // overwrite code so we don't keep returning some
+        return Some(Ok(t))
     }
 }
 #[derive(Debug, PartialEq)]
 pub struct Token<'a> {
     pub token: &'a str,
-    pub line: usize
+    pub line: i32
 }
 
 pub fn op_to_byte(op: &str) -> Result<u8> {
@@ -164,7 +182,9 @@ pub enum AvcErr {
     MalformedDirective(String),
     UndefinedLabel(String),
     UnmatchedDelim(usize),
-    BadHex(String)
+    BadHex(String),
+    BadBinary(String),
+    OpNotInCodeSpace
 }
 
 #[cfg(test)]
@@ -194,6 +214,14 @@ mod tests {
         assert_eq!(t.next(), Some(Ok(Token { token: "test", line: 0 })));
         assert_eq!(t.next(), Some(Ok(Token { token: "test(aa\n bb cc)", line: 0 })));
         assert_eq!(t.next(), Some(Ok(Token { token: "next", line: 2 })));
+        assert_eq!(t.next(), None);
+    }
+    #[test]
+    fn comments() {
+        let mut t = Tokeniser::new("\\comment\n\\c2\ntest \\comment\\ test(aa\n bb cc)\nnext\\end");
+        assert_eq!(t.next(), Some(Ok(Token { token: "test", line: 2 })));
+        assert_eq!(t.next(), Some(Ok(Token { token: "test(aa\n bb cc)", line: 2 })));
+        assert_eq!(t.next(), Some(Ok(Token { token: "next", line: 4 })));
         assert_eq!(t.next(), None);
     }
 }

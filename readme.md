@@ -14,8 +14,12 @@ The current supported directives are:
 
 - `.label(name)`: adds a label with the name given. `.lbl(name)` may also be used.
 - `.absc(name)`: inserts the absolute address of the label given, as a raw value.
-- `.hex(hex)`: inserts the byte given as a raw value.
+- `.hex(hex)`: inserts the byte given as a raw value. `.x(hex)` may also be used
+- `.b(binary)`: inserts the byte given as a raw value.
+- `.abspad(pad)`: pad to the specified location, given in hex. This can go backwards.
 
 Comments are inserted using `\`. They proceed until either the end of the line or another `\`.
+
+There is an implicit `.abspad(0300)` at the start of the program.
 
 Example programs can be found in the `examples` directory.

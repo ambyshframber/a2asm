@@ -1,5 +1,6 @@
 mod utils;
 mod assembler;
+mod avcmacro;
 
 use assembler::Assembler;
 use std::env::args;
@@ -16,7 +17,7 @@ fn main() {
 fn run() -> Result<(), i32> {
     let args: Vec<String> = args().collect();
     let (in_file, out_file) = match args.len() {
-        1 => return Err(2),
+        0 | 1 => return Err(2),
         2 => (args[1].as_str(), "out.avcr"),
         _ => (args[1].as_str(), args[2].as_str()),
     };

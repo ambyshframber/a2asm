@@ -1,4 +1,7 @@
 use std::iter::Iterator;
+use thiserror::Error;
+//use std::ops::Deref;
+//use std::fmt;
 
 pub struct Tokeniser<'a> {
     code: &'a str,
@@ -24,18 +27,47 @@ impl<'a> Iterator for Tokeniser<'a> {
             return None
         }
         let mut hit_word = false;
-        let mut in_comment = false;
+        let mut hit_comment = false;
+        let mut in_line_comment = false;
+        let mut in_multiline_comment = false;
         let mut tstart = 0;
         let mut line_at_tstart = 0;
         let mut bracket_layers = 0;
         
         for (i, c) in self.code.char_indices() {
+            //println!("{:?}, hc {}, slc {}, mlc {}", c, hit_comment, in_line_comment, in_multiline_comment);
             if c == '\n' { // ALWAYS count lines
                 self.line += 1
             }
-            if in_comment { // iterate until matching `\` or newline
-                if c == '\\' || c == '\n' {
-                    in_comment = false
+            if hit_comment && !in_multiline_comment { // iterate until matching `\` or newline
+                if c == '/' {
+                    in_line_comment = true
+                }
+                else if c == '*' {
+                    in_multiline_comment = true
+                }
+                hit_comment = false
+            }
+            else if in_line_comment {
+                if c == '\n' {
+                    in_line_comment = false
+                }
+            }
+            else if in_multiline_comment {
+                if c == '*' {
+                    hit_comment = true // reuse variable for exiting comments
+                }
+                else if hit_comment {
+                    //println!("maybe exit mlc");
+                    //println!("{:?}", c);
+                    if c == '/' {
+                        hit_comment = false;
+                        in_multiline_comment = false
+                    }
+                }
+                else {
+                    //println!("do not exit mlc");
+                    hit_comment = false
                 }
             }
             else {
@@ -50,8 +82,8 @@ impl<'a> Iterator for Tokeniser<'a> {
                     if c.is_whitespace() { // keep going
                         continue
                     }
-                    else if c == '\\' { // enter comment
-                        in_comment = true
+                    else if c == '/' { // enter comment
+                        hit_comment = true
                     }
                     else { // not whitespace or comment
                         tstart = i; // remember where token starts
@@ -60,7 +92,7 @@ impl<'a> Iterator for Tokeniser<'a> {
                     }
                 }
                 else { // found word
-                    if (c.is_whitespace() || c == '\\') && bracket_layers == 0 { // end word
+                    if (c.is_whitespace()) && bracket_layers == 0 { // end word
                         if c == '\n' {
                             self.line -= 1
                         }
@@ -78,7 +110,7 @@ impl<'a> Iterator for Tokeniser<'a> {
                 }
             }
         }
-        if in_comment || !hit_word {
+        if in_line_comment || in_multiline_comment || !hit_word {
             self.code = "";
             return None
         }
@@ -87,7 +119,7 @@ impl<'a> Iterator for Tokeniser<'a> {
             line: self.line
         };
         self.code = ""; // overwrite code so we don't keep returning some
-        return Some(Ok(t))
+        Some(Ok(t))
     }
 }
 #[derive(Debug, PartialEq)]
@@ -142,16 +174,16 @@ pub fn op_to_byte(op: &str) -> Result<u8> {
                         b |= 0x80
                     }
                     else {
-                        return Err(AvcErr::BadMode('k'))
+                        return Err(AvcErr::BadMode(op.into(), 'k'))
                     }
                 }
                 'r' => b |= 0x40,
                 '2' => b |= 0x20,
-                _ => return Err(AvcErr::BadMode(c))
+                _ => return Err(AvcErr::BadMode(op.into(), c))
             }
         }
     }
-    else if modes.len() != 0 {
+    else if !modes.is_empty() {
         // error here
     }
 
@@ -170,23 +202,103 @@ pub fn set_vec_at<T: Default>(v: &mut Vec<T>, val: T, idx: usize) {
     else {
         v[idx] = val
     }
-} 
+}
+
+pub fn split_bracket_groups(s: &str, split: char) -> Vec<&str> {
+    let mut ret = Vec::new();
+    let mut last_idx = 0;
+    let mut bracket_layers = 0;
+    for (i, c) in s.char_indices() {
+        //println!("{}", c);
+        if c == '(' {
+            bracket_layers += 1
+        }
+        else if c == ')' {
+            bracket_layers -= 1
+        }
+        else if c == split && bracket_layers == 0 {
+            // split here
+            ret.push(s[last_idx..i].trim());
+            last_idx = i + 1
+        }
+    }
+    ret.push(s[last_idx..].trim());
+    ret
+}
 
 pub type Result<T> = std::result::Result<T, AvcErr>;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Error)]
 pub enum AvcErr {
+    #[error("bad instruction: {0}")]
     BadInstr(String),
-    BadMode(char),
+    #[error("bad mode: {0} cannot have mode {1}")]
+    BadMode(String, char),
+    #[error("unrecognised directive: {0}")]
     UnrecognisedDirective(String),
+    #[error("malformed directive: {0}")]
     MalformedDirective(String),
+    #[error("undefined label: {0}")]
     UndefinedLabel(String),
-    UnmatchedDelim(usize),
-    BadHex(String),
-    BadBinary(String),
-    OpNotInCodeSpace
+    #[error("bad integer literal: {0}")]
+    BadInt(String),
+    #[error("byte not in code space")]
+    OpNotInCodeSpace,
+    #[error("relative jump too large")]
+    RelJumpTooLarge,
+    #[error("undefined macro: {0}")]
+    UndefinedMacro(String),
+    #[error("multibyte char: {0}")]
+    MultibyteChar(char)
 }
 
+/*
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub enum MaybeOwned<'a> { // makes macros easier
+    Owned(String),
+    Ref(&'a str)
+}
+impl Deref for MaybeOwned<'_> {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Owned(s) => s.as_str(),
+            Self::Ref(s) => s
+        }
+    }
+}
+impl<'a> From<String> for MaybeOwned<'a> {
+    fn from(s: String) -> MaybeOwned<'a> {
+        MaybeOwned::Owned(s)
+    }
+}
+impl<'a> From<&'a str> for MaybeOwned<'a> {
+    fn from(s: &'a str) -> MaybeOwned<'a> {
+        MaybeOwned::Ref(s)
+    }
+}
+impl AsRef<str> for MaybeOwned<'_> {
+    fn as_ref(&self) -> &str {
+        match self {
+            Self::Owned(s) => s,
+            Self::Ref(s) => s
+        }
+    }
+}
+impl From<MaybeOwned<'_>> for String {
+    fn from(s: MaybeOwned<'_>) -> String {
+        match s {
+            MaybeOwned::Owned(s) => s,
+            MaybeOwned::Ref(s) => String::from(s)
+        }
+    }
+}
+impl fmt::Display for MaybeOwned<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.as_ref())
+    }
+}
+*/
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,10 +330,24 @@ mod tests {
     }
     #[test]
     fn comments() {
-        let mut t = Tokeniser::new("\\comment\n\\c2\ntest \\comment\\ test(aa\n bb cc)\nnext\\end");
+        let mut t = Tokeniser::new(r"
+//comment
+test
+/* comment */ test(aa //a
+ bb cc)
+// comment
+next //end");
         assert_eq!(t.next(), Some(Ok(Token { token: "test", line: 2 })));
-        assert_eq!(t.next(), Some(Ok(Token { token: "test(aa\n bb cc)", line: 2 })));
-        assert_eq!(t.next(), Some(Ok(Token { token: "next", line: 4 })));
+        assert_eq!(t.next(), Some(Ok(Token { token: "test(aa //a\n bb cc)", line: 3 })));
+        assert_eq!(t.next(), Some(Ok(Token { token: "next", line: 6 })));
         assert_eq!(t.next(), None);
+    }
+
+    #[test]
+    fn sbg() {
+        assert_eq!(
+            split_bracket_groups("abc, (123, 456), xyz", ','),
+            vec!["abc", "(123, 456)", "xyz"]
+        )
     }
 }

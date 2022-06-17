@@ -1,0 +1,2 @@
+LIT .relcall(target) JMP .s(aaaaaa)
+.lbl(target) LIT #68 LIT2 #ff #09 STA LIT #0 LIT2 #ff #0f STA

@@ -1,0 +1,4 @@
+.defmac(EMIT, (), (LIT2 #ff #09 STA))
+.defmac(QUIT, (code), (LIT #$code LIT2 #ff #0f STA))
+
+LIT #68 %EMIT %QUIT(0)
